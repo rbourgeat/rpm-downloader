@@ -55,24 +55,32 @@ while true; do
             break
             ;;
         2)
-            TOOL_NAME="k8s"
+            while true; do
+                echo -e "\n${C_YELLOW}[>] Enter the desired Kubernetes major.minor version (e.g., 1.30, 1.29, 1.28):${C_RESET}"
+                read -p "    Version: " K8S_VERSION
+                if [[ -n "$K8S_VERSION" ]]; then
+                    break
+                else
+                    echo -e "${C_RED}[!] Version cannot be empty. Please try again.${C_RESET}"
+                fi
+            done
+            echo -e "${C_GREEN}[*] Kubernetes version set to ${K8S_VERSION}.${C_RESET}"
+
+            TOOL_NAME="k8s-v${K8S_VERSION}"
             PACKAGES_TO_DOWNLOAD=("kubelet" "kubeadm" "kubectl")
             REPO_SETUP_COMMANDS="
-    echo '---> Configuring Kubernetes repository...'
+    echo '---> Configuring Kubernetes repository for version ${K8S_VERSION}...'
     cat <<EOF | tee /etc/yum.repos.d/kubernetes.repo
 [kubernetes]
 name=Kubernetes
-baseurl=https://pkgs.k8s.io/core:/stable:/v1.29/rpm/
+baseurl=https://pkgs.k8s.io/core:/stable:/v${K8S_VERSION}/rpm/
 enabled=1
 gpgcheck=1
-gpgkey=https://pkgs.k8s.io/core:/stable:/v1.29/rpm/repodata/repodata.fly.key
+gpgkey=https://pkgs.k8s.io/core:/stable:/v${K8S_VERSION}/rpm/repodata/repodata.fly.key
 EOF
     echo '---> Restricting to x86_64 architecture...'
     echo 'multilib_policy=best' >> /etc/dnf/dnf.conf
     echo 'exclude=*.aarch64 *.ppc64le *.s390x' >> /etc/dnf/dnf.conf
-
-    echo '---> Disabling SELinux for container runtimes...'
-    setenforce 0 || true
 "
             break
             ;;
