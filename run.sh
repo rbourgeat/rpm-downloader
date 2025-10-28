@@ -25,7 +25,7 @@ fi
 # ==============================================================================
 
 print_header "RPM Package Downloader"
-echo -e "This script will download RPMs for Docker or Kubernetes."
+echo -e "This script will download RPMs for Docker, Kubernetes, or NVIDIA Container Toolkit."
 
 while true; do
     echo -e "\n${C_YELLOW}[>] Select the target AlmaLinux version:${C_RESET}"
@@ -45,7 +45,8 @@ while true; do
     echo -e "\n${C_YELLOW}[>] Select the tool to download:${C_RESET}"
     echo "    1) Docker CE"
     echo "    2) Kubernetes (kubeadm, kubelet, kubectl)"
-    read -p "    Enter your choice [1-2]: " tool_choice
+    echo "    3) NVIDIA Container Toolkit"
+    read -p "    Enter your choice [1-3]: " tool_choice
 
     case $tool_choice in
         1)
@@ -84,7 +85,18 @@ EOF
 "
             break
             ;;
-        *) echo -e "${C_RED}[!] Invalid selection. Please enter 1 or 2.${C_RESET}" ;;
+        3)
+            TOOL_NAME="nvidia-toolkit"
+            PACKAGES_TO_DOWNLOAD=("nvidia-container-toolkit")
+            REPO_SETUP_COMMANDS="
+    echo '---> Enabling EPEL repository for potential dependencies...'
+    dnf install -y epel-release > /dev/null
+    echo '---> Adding NVIDIA Container Toolkit repository...'
+    curl -s -L https://nvidia.github.io/libnvidia-container/stable/rpm/nvidia-container-toolkit.repo -o /etc/yum.repos.d/nvidia-container-toolkit.repo
+"
+            break
+            ;;
+        *) echo -e "${C_RED}[!] Invalid selection. Please enter 1, 2, or 3.${C_RESET}" ;;
     esac
 done
 echo -e "${C_GREEN}[*] Tool set to ${TOOL_NAME^}.${C_RESET}"
@@ -109,7 +121,7 @@ docker run --rm -v "${ABS_DOWNLOAD_DIR}:/rpms" "${DOCKER_IMAGE}" bash -c "
     dnf install -y dnf-utils > /dev/null
     ${REPO_SETUP_COMMANDS}
     echo '---> Inside container: Downloading packages and all dependencies...'
-    dnf download --resolve --downloaddir=/rpms ${PACKAGES_TO_DOWNLOAD[*]}
+    dnf download -y --resolve --downloaddir=/rpms ${PACKAGES_TO_DOWNLOAD[*]}
 "
 
 # ==============================================================================
@@ -120,104 +132,12 @@ print_header "Download Complete"
 TOTAL_FILES=$(ls -1q "${DOWNLOAD_DIR}" | wc -l)
 echo -e "${C_GREEN}[✓] Success! Downloaded ${TOTAL_FILES} RPM files to './${DOWNLOAD_DIR}'.${C_RESET}"
 
-print_header "Next Steps: Choose Your Method"
-while true; do
-    echo -e "\n${C_YELLOW}[>] How would you like to use these RPMs?${C_RESET}"
-    echo -e "    ${C_BOLD}A)${C_RESET} Manual/Offline Install (copy files to a server)"
-    echo -e "    ${C_BOLD}B)${C_RESET} Upload to Nexus (for centralized repository management)"
-    read -p "    Enter your choice [A/B]: " next_step_choice
-
-    case ${next_step_choice^^} in
-        A)
-            echo
-            echo -e "${C_BOLD}--- Manual/Offline Installation Instructions ---${C_RESET}"
-            echo -e "1. Copy the '${C_YELLOW}${DOWNLOAD_DIR}${C_RESET}' directory to your target AlmaLinux ${ALMA_VERSION} machine."
-            echo -e "   ${C_CYAN}Example: scp -r ./${DOWNLOAD_DIR} user@almalinux-server:~/ ${C_RESET}"
-            echo
-            echo -e "2. On the target machine, install all RPMs with one command:"
-            echo -e "   ${C_CYAN}cd ${DOWNLOAD_DIR}${C_RESET}"
-            echo -e "   ${C_CYAN}sudo dnf install ./*.rpm${C_RESET}"
-            echo -e "${C_BOLD}------------------------------------------------${C_RESET}"
-            break
-            ;;
-        B)
-            UPLOAD_SCRIPT_NAME="upload-to-nexus.sh"
-            UPLOAD_SCRIPT_PATH="${DOWNLOAD_DIR}/${UPLOAD_SCRIPT_NAME}"
-
-            cat <<'EOF' > "${UPLOAD_SCRIPT_PATH}"
-#!/bin/bash
-set -e
-
-# ==============================================================================
-#  This script uploads all .rpm files in its directory to a Nexus YUM repo.
-# ==============================================================================
-
-# --- CONFIGURATION: EDIT THESE VALUES ---
-NEXUS_URL="https://nexus.your-company.com"
-NEXUS_REPO="your-yum-hosted-repo-name"
-NEXUS_USER="your-username"
-# ----------------------------------------
-
-echo "--- Nexus RPM Uploader ---"
-echo "URL:  ${NEXUS_URL}"
-echo "Repo: ${NEXUS_REPO}"
-echo "User: ${NEXUS_USER}"
 echo
-
-# Securely prompt for the password
-read -sp "Enter password for ${NEXUS_USER}: " NEXUS_PASS
+echo -e "${C_BOLD}--- Manual/Offline Installation Instructions ---${C_RESET}"
+echo -e "1. Copy the '${C_YELLOW}${DOWNLOAD_DIR}${C_RESET}' directory to your target AlmaLinux ${ALMA_VERSION} machine."
+echo -e "   ${C_CYAN}Example: scp -r ./${DOWNLOAD_DIR} user@almalinux-server:~/ ${C_RESET}"
 echo
-echo
-
-# Loop through all .rpm files in the current directory
-for rpm_file in ./*.rpm; do
-    # Check if the file exists to handle cases with no RPMs
-    [ -e "$rpm_file" ] || continue
-
-    echo -n "Uploading $(basename "$rpm_file")... "
-    
-    # Use curl to upload the package
-    # The API endpoint is /service/rest/v1/components
-    response=$(curl -s -o /dev/null -w "%{http_code}" \
-         -u "${NEXUS_USER}:${NEXUS_PASS}" \
-         -X POST "${NEXUS_URL}/service/rest/v1/components?repository=${NEXUS_REPO}" \
-         -H "Content-Type: multipart/form-data" \
-         -F "yum.asset=@${rpm_file}")
-    
-    if [ "$response" -ge 200 ] && [ "$response" -lt 300 ]; then
-        echo "OK (HTTP ${response})"
-    else
-        echo "FAILED (HTTP ${response})"
-        echo "  Please check your credentials, URL, and repository name."
-        exit 1
-    fi
-done
-
-echo
-echo "✅ All RPMs uploaded successfully."
-EOF
-            chmod +x "${UPLOAD_SCRIPT_PATH}"
-
-            echo
-            echo -e "${C_GREEN}[✓] A helper script has been created for you!${C_RESET}"
-            echo -e "${C_BOLD}--- How to Upload to Nexus ---${C_RESET}"
-            echo -e "A new script has been placed inside your download folder."
-            echo
-            echo -e "1. ${C_BOLD}Navigate into the directory:${C_RESET}"
-            echo -e "   ${C_CYAN}cd ${DOWNLOAD_DIR}${C_RESET}"
-            echo
-            echo -e "2. ${C_BOLD}Edit the script with your Nexus details:${C_RESET}"
-            echo -e "   (Use any text editor, like nano or vim)"
-            echo -e "   ${C_CYAN}vim ${UPLOAD_SCRIPT_NAME}${C_RESET}"
-            echo
-            echo -e "3. ${C_BOLD}Run the script to upload all RPMs:${C_RESET}"
-            echo -e "   (It will securely prompt for your password)"
-            echo -e "   ${C_CYAN}./${UPLOAD_SCRIPT_NAME}${C_RESET}"
-            echo -e "${C_BOLD}--------------------------------${C_RESET}"
-            break
-            ;;
-        *)
-            echo -e "${C_RED}[!] Invalid selection. Please enter A or B.${C_RESET}"
-            ;;
-    esac
-done
+echo -e "2. On the target machine, install all RPMs with one command:"
+echo -e "   ${C_CYAN}cd ${DOWNLOAD_DIR}${C_RESET}"
+echo -e "   ${C_CYAN}sudo dnf install ./*.rpm${C_RESET}"
+echo -e "${C_BOLD}------------------------------------------------${C_RESET}"
