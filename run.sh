@@ -58,8 +58,8 @@ while true; do
             TOOL_NAME="k8s"
             PACKAGES_TO_DOWNLOAD=("kubelet" "kubeadm" "kubectl")
             REPO_SETUP_COMMANDS="
-                echo '---> Configuring Kubernetes repository...'
-                cat <<EOF | tee /etc/yum.repos.d/kubernetes.repo
+    echo '---> Configuring Kubernetes repository...'
+    cat <<EOF | tee /etc/yum.repos.d/kubernetes.repo
 [kubernetes]
 name=Kubernetes
 baseurl=https://pkgs.k8s.io/core:/stable:/v1.29/rpm/
@@ -67,9 +67,13 @@ enabled=1
 gpgcheck=1
 gpgkey=https://pkgs.k8s.io/core:/stable:/v1.29/rpm/repodata/repodata.fly.key
 EOF
-                echo '---> Disabling SELinux for container runtimes...'
-                setenforce 0 || true
-            "
+    echo '---> Restricting to x86_64 architecture...'
+    echo 'multilib_policy=best' >> /etc/dnf/dnf.conf
+    echo 'exclude=*.aarch64 *.ppc64le *.s390x' >> /etc/dnf/dnf.conf
+
+    echo '---> Disabling SELinux for container runtimes...'
+    setenforce 0 || true
+"
             break
             ;;
         *) echo -e "${C_RED}[!] Invalid selection. Please enter 1 or 2.${C_RESET}" ;;
